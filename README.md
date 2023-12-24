@@ -33,7 +33,7 @@ void main(){
 ## Usage
 
 ### Create a Zip File
-To create a zip file, you can use the ZipFile\.open method. Here's an example:
+To create a zip file, you can use the ZipFile.open method. Here's an example:
 
 ```dart
 import 'package:zip_flutter/zip_flutter.dart';
