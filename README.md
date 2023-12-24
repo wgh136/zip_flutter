@@ -2,6 +2,8 @@
 
 zip_flutter is a Dart package that enables you to extract or create zip archives using the dart:ffi library.
 
+c code is modified from [zip](https://github.com/kuba--/zip)
+
 ## Getting started
 
 To get started, add the following dependency to your pubspec.yaml file:
@@ -14,6 +16,8 @@ dependencies:
 Now, you can use the package in your Dart code:
 
 ```dart
+import 'package:zip_flutter/zip_flutter.dart';
+
 void main(){
   // create a zip file.
   var zip = ZipFile.open("test.zip");

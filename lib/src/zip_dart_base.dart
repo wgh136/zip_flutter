@@ -42,7 +42,7 @@ class ZipFile{
   factory ZipFile.open(String path, {int level = 6, ZipOpenMode mode = ZipOpenMode.write}){
     var res = _lib.zip_open(path.toNativeUtf8().cast(), level, mode.value);
     if(res == ffi.nullptr){
-      throw const LibzipException("Failed to open file.");
+      throw const ZipException("Failed to open file.");
     }
     var zip = ZipFile._create(res);
     return zip;
@@ -64,18 +64,18 @@ class ZipFile{
   void addFile(String name, String source){
     var res = _lib.zip_entry_open(_zip, name.toNativeUtf8().cast());
     if(res < 0){
-      throw const LibzipException("Failed to open entry.");
+      throw const ZipException("Failed to open entry.");
     }
     res = _lib.zip_entry_fwrite(_zip, source.toNativeUtf8().cast());
     if(res < 0){
-      throw LibzipException("Failed to write content.\n"
+      throw ZipException("Failed to write content.\n"
           "Input: $source\n"
           "Trying write to $name\n"
           "Error Code $res\n");
     }
     res = _lib.zip_entry_close(_zip);
     if(res < 0){
-      throw const LibzipException("Failed to close entry.");
+      throw const ZipException("Failed to close entry.");
     }
   }
 
@@ -91,7 +91,7 @@ class ZipFile{
   ZipEntry getEntryByIndex(int index){
     var res = _lib.zip_entry_openbyindex(_zip, index);
     if(res < 0){
-      throw const LibzipException("Failed to open entry.");
+      throw const ZipException("Failed to open entry.");
     }
     return ZipEntry(
         _lib.zip_entry_name(_zip).cast<Utf8>().toDartString(),
@@ -109,7 +109,7 @@ class ZipFile{
   ZipEntry getEntryByName(String name){
     var res = _lib.zip_entry_open(_zip, name.toNativeUtf8().cast());
     if(res < 0){
-      throw const LibzipException("Failed to open entry.");
+      throw const ZipException("Failed to open entry.");
     }
     return ZipEntry(
         name,
@@ -123,7 +123,7 @@ class ZipFile{
   void deleteEntry(String name){
     var res = _lib.zip_entries_delete(_zip, name.toNativeUtf8().cast(), 1);
     if(res < 0){
-      throw const LibzipException("Failed to delete entry.");
+      throw const ZipException("Failed to delete entry.");
     }
   }
 
@@ -172,11 +172,11 @@ class ZipEntry{
   const ZipEntry(this.name, this.isDir, this.size, this.crc32);
 }
 
-class LibzipException implements Exception {
-  const LibzipException(this.message);
+class ZipException implements Exception {
+  const ZipException(this.message);
 
   final String message;
 
   @override
-  String toString() => "LibzipException: $message";
+  String toString() => "ZipException: $message";
 }
