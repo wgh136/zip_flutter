@@ -1,0 +1,3 @@
+D:/code/zip_dart/zip_flutter/src/cmake-build-debug/CMakeFiles/zip_flutter.dir
+D:/code/zip_dart/zip_flutter/src/cmake-build-debug/CMakeFiles/edit_cache.dir
+D:/code/zip_dart/zip_flutter/src/cmake-build-debug/CMakeFiles/rebuild_cache.dir
