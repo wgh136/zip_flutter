@@ -266,8 +266,7 @@ class ZipEntry {
 
   /// Deletes zip archive entry
   void delete() {
-    var res =
-        _lib.zip_entries_deletebyindex(_file._zip, _dartIntToSize(index), 1);
+    var res = _lib.zip_entries_delete(_file._zip, name.toNativeUtf8().cast(), 1);
     if (res < 0) {
       throw const ZipException("Failed to delete an entry");
     }
@@ -329,10 +328,4 @@ class ZipException implements Exception {
 
   @override
   String toString() => "ZipException: $message";
-}
-
-ffi.Pointer<ffi.Size> _dartIntToSize(int value) {
-  var p = malloc.allocate<ffi.Size>(ffi.sizeOf<ffi.Size>());
-  p[0] = value;
-  return p;
 }
