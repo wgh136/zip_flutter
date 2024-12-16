@@ -87,3 +87,9 @@ flutter:
   #
   # For details regarding fonts in packages, see
   # https://flutter.dev/custom-fonts/#from-packages
+
+ffigen:
+  output: 'lib/src/generated_bindings.dart'
+  headers:
+    entry-points:
+      - 'src/zip.h'

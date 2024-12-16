@@ -12,6 +12,11 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <thread>
+#include <mutex>
+#include <fstream>
+#include <iostream>
+#include <vector>
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_MSC_VER) ||              \
     defined(__MINGW32__)
@@ -101,6 +106,10 @@ struct zip_t {
   mz_zip_archive archive;
   mz_uint level;
   struct zip_entry_t entry;
+  std::mutex write_lock;
+  ZipWriteStatus write_status[zipWriteStatusLength];
+  int8_t ZipWriteStatusNext;
+  std::vector<std::thread> threads;
 };
 
 enum zip_modify_t {
@@ -1385,6 +1394,93 @@ cleanup:
   return err;
 }
 
+int zip_entry_close_no_flush(zip_t* zip) {
+    mz_zip_archive *pzip = NULL;
+  mz_uint level;
+  tdefl_status done;
+  mz_uint16 entrylen;
+  mz_uint16 dos_time = 0, dos_date = 0;
+  int err = 0;
+  mz_uint8 *pExtra_data = NULL;
+  mz_uint32 extra_size = 0;
+  mz_uint8 extra_data[MZ_ZIP64_MAX_CENTRAL_EXTRA_FIELD_SIZE];
+  mz_uint8 local_dir_footer[MZ_ZIP_DATA_DESCRIPTER_SIZE64];
+  mz_uint32 local_dir_footer_size = MZ_ZIP_DATA_DESCRIPTER_SIZE64;
+
+  if (!zip) {
+    // zip_t handler is not initialized
+    err = ZIP_ENOINIT;
+    goto cleanup;
+  }
+
+  pzip = &(zip->archive);
+  if (pzip->m_zip_mode == MZ_ZIP_MODE_READING) {
+    goto cleanup;
+  }
+
+  level = zip->level & 0xF;
+  if (level) {
+    zip->entry.method = MZ_DEFLATED;
+  }
+
+  entrylen = (mz_uint16)strlen(zip->entry.name);
+#ifndef MINIZ_NO_TIME
+  mz_zip_time_t_to_dos_time(zip->entry.m_time, &dos_time, &dos_date);
+#endif
+
+  MZ_WRITE_LE32(local_dir_footer + 0, MZ_ZIP_DATA_DESCRIPTOR_ID);
+  MZ_WRITE_LE32(local_dir_footer + 4, zip->entry.uncomp_crc32);
+  MZ_WRITE_LE64(local_dir_footer + 8, zip->entry.comp_size);
+  MZ_WRITE_LE64(local_dir_footer + 16, zip->entry.uncomp_size);
+
+  if (pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset,
+                     local_dir_footer,
+                     local_dir_footer_size) != local_dir_footer_size) {
+    // Cannot write zip entry header
+    err = ZIP_EWRTHDR;
+    goto cleanup;
+  }
+  zip->entry.dir_offset += local_dir_footer_size;
+
+  pExtra_data = extra_data;
+  extra_size = mz_zip_writer_create_zip64_extra_data(
+      extra_data,
+      (zip->entry.uncomp_size >= MZ_UINT32_MAX) ? &zip->entry.uncomp_size
+                                                : NULL,
+      (zip->entry.comp_size >= MZ_UINT32_MAX) ? &zip->entry.comp_size : NULL,
+      (zip->entry.header_offset >= MZ_UINT32_MAX) ? &zip->entry.header_offset
+                                                  : NULL);
+
+  if ((entrylen) && (zip->entry.name[entrylen - 1] == '/') &&
+      !zip->entry.uncomp_size) {
+    /* Set DOS Subdirectory attribute bit. */
+    zip->entry.external_attr |= MZ_ZIP_DOS_DIR_ATTRIBUTE_BITFLAG;
+  }
+
+  if (!mz_zip_writer_add_to_central_dir(
+          pzip, zip->entry.name, entrylen, pExtra_data, (mz_uint16)extra_size,
+          "", 0, zip->entry.uncomp_size, zip->entry.comp_size,
+          zip->entry.uncomp_crc32, zip->entry.method,
+          MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_UTF8 |
+              MZ_ZIP_LDH_BIT_FLAG_HAS_LOCATOR,
+          dos_time, dos_date, zip->entry.header_offset,
+          zip->entry.external_attr, NULL, 0)) {
+    // Cannot write to zip central dir
+    err = ZIP_EWRTDIR;
+    goto cleanup;
+  }
+
+  pzip->m_total_files++;
+  pzip->m_archive_size = zip->entry.dir_offset;
+
+cleanup:
+  if (zip) {
+    zip->entry.m_time = 0;
+    CLEANUP(zip->entry.name);
+  }
+  return err;
+}
+
 const char *zip_entry_name(struct zip_t *zip) {
   if (!zip) {
     // zip_t handler is not initialized
@@ -1543,6 +1639,125 @@ int zip_entry_fwrite(struct zip_t *zip, const char *filename) {
   fclose(stream);
 
   return err;
+}
+
+void compressBuffer(zip_t* zip, const void* inBuf, size_t inSize, const char* entryName, const ZipThreadWriteHandler handler) {
+  zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
+  tdefl_compressor compressor{};
+  auto status = tdefl_init(
+    &compressor,
+    nullptr,
+    nullptr,
+    (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY)
+    );
+  if (status != TDEFL_STATUS_OKAY) {
+    zip->write_status[handler] = ZIP_WRITE_STATUS_ERROR;
+    return;
+  }
+  auto* outBuf = new unsigned char[inSize];
+  size_t outSize = 0;
+  tdefl_compress(&compressor, inBuf, &inSize, outBuf, &outSize, TDEFL_FINISH);
+  zip->write_lock.lock();
+  zip_entry_open(zip, entryName);
+  auto pzip = &(zip->archive);
+  pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset, outBuf, outSize);
+  zip->entry.uncomp_crc32 = static_cast<mz_uint32>(mz_crc32(
+    zip->entry.uncomp_crc32, static_cast<const mz_uint8 *>(inBuf), inSize));
+  zip->entry.uncomp_size = inSize;
+  zip->entry.dir_offset += outSize;
+  zip->entry.comp_size = outSize;
+  zip_entry_close_no_flush(zip);
+  delete[] outBuf;
+  zip->write_lock.unlock();
+  zip->write_status[handler] = ZIP_WRITE_STATUS_OK;
+}
+
+ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entryName, void *buf, size_t bufsize) {
+  auto handler = zip->ZipWriteStatusNext;
+  std::thread t(compressBuffer, zip, buf, bufsize, entryName, handler);
+  zip->ZipWriteStatusNext = (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
+  return handler;
+}
+
+int compressFile(struct zip_t *zip, const char *entryname, const char* filename) {
+  tdefl_compressor compressor{};
+  if (tdefl_init(
+    &compressor,
+    nullptr,
+    nullptr,
+    (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY)
+    ) != TDEFL_STATUS_OKAY) {
+    return -1;
+  }
+
+  struct MZ_FILE_STAT_STRUCT stat{};
+  if (MZ_FILE_STAT(filename, &stat) != 0) {
+    return -1;
+  }
+  if (stat.st_size == 0) {
+    return -1;
+  }
+
+  auto file = std::ifstream(filename, std::ios::binary);
+  auto data = new char[stat.st_size];
+  size_t size = stat.st_size;
+  file.read(data, size);
+  auto _crc32 = mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const mz_uint8 *>(data), stat.st_size);
+  auto pzip = &(zip->archive);
+  size_t outSize = stat.st_size + 1024;
+  unsigned char* compData;
+  for(;;) {
+    compData = new unsigned char[outSize];
+    size_t inBytes = size;
+    auto status = tdefl_compress(&compressor, data, &inBytes, compData, &outSize, TDEFL_FINISH);
+    if (status == TDEFL_STATUS_DONE) {
+      break;
+    } else if (status == TDEFL_STATUS_OKAY) {
+      // The buffer is too small
+      outSize = static_cast<size_t>(static_cast<double>(outSize) * 1.2);
+      delete[] compData;
+    } else {
+      delete[] data;
+      delete[] compData;
+      return -1;
+    }
+  }
+  zip->write_lock.lock();
+  zip_entry_open(zip, entryname);
+  pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset, compData, outSize);
+  zip->entry.dir_offset += outSize;
+  zip->entry.comp_size = outSize;
+  zip->entry.uncomp_crc32 = static_cast<mz_uint32>(_crc32);
+  zip->entry.uncomp_size = stat.st_size;
+  zip->entry.m_time = stat.st_mtime;
+  delete[] compData;
+  delete[] data;
+  int s = zip_entry_close_no_flush(zip);
+  zip->write_lock.unlock();
+  return s;
+}
+
+void compressFiles(struct zip_t *zip, const char **entrynames, const char **filenames, size_t count, const ZipThreadWriteHandler handler) {
+  zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
+  for (auto i = 0; i < count; i++) {
+    int status = compressFile(zip, entrynames[i], filenames[i]);
+    if (status != 0) {
+      zip->write_status[handler] = ZIP_WRITE_STATUS_ERROR;
+      return;
+    }
+  }
+  zip->write_status[handler] = ZIP_WRITE_STATUS_OK;
+}
+
+ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip, const char **entrynames, const char **filenames, size_t count) {
+  auto handler = zip->ZipWriteStatusNext;
+  zip->threads.emplace_back(compressFiles, zip, entrynames, filenames, count, handler);
+  zip->ZipWriteStatusNext = (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
+  return handler;
+}
+
+ZipWriteStatus zip_thread_write_status(zip_t* zip, ZipThreadWriteHandler handler) {
+  return zip->write_status[handler];
 }
 
 ssize_t zip_entry_read(struct zip_t *zip, void **buf, size_t *bufsize) {

@@ -89,20 +89,31 @@ typedef long ssize_t; /* byte count or error */
 #define ZIP_EWRINIT -32     // cannot initialize writer from reader
 
 /**
- * Looks up the error message string corresponding to an error number.
- * @param errnum error number
- * @return error message string corresponding to errnum or NULL if error is not
- * found.
- */
-extern ZIP_EXPORT const char *zip_strerror(int errnum);
-
-/**
  * @struct zip_t
  *
  * This data structure is used throughout the library to represent zip archive -
  * forward declaration.
  */
 struct zip_t;
+
+enum ZipWriteStatus {
+  ZIP_STATUS_NO_USE = 0,
+  ZIP_WRITE_STATUS_OK = 1,
+  ZIP_WRITE_STATUS_ERROR = 2,
+  ZIP_WRITE_STATUS_WRITING = 3,
+};
+
+constexpr int8_t zipWriteStatusLength = 64;
+
+typedef int8_t ZipThreadWriteHandler;
+
+/**
+ * Looks up the error message string corresponding to an error number.
+ * @param errnum error number
+ * @return error message string corresponding to errnum or NULL if error is not
+ * found.
+ */
+extern ZIP_EXPORT const char *zip_strerror(int errnum);
 
 /**
  * Opens zip archive with compression level using the given mode.
@@ -316,6 +327,12 @@ extern ZIP_EXPORT int zip_entry_write(struct zip_t *zip, const void *buf,
  */
 extern ZIP_EXPORT int zip_entry_fwrite(struct zip_t *zip, const char *filename);
 
+extern ZIP_EXPORT ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entryname, void *buf, size_t bufsize);
+
+extern ZIP_EXPORT ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip, const char **entryname, const char **filenames, size_t count);
+
+extern ZIP_EXPORT ZipWriteStatus zip_thread_write_status(zip_t* zip, ZipThreadWriteHandler handler);
+
 /**
  * Extracts the current zip entry into output buffer.
  *
@@ -524,9 +541,9 @@ extern ZIP_EXPORT int zip_extract(const char *zipname, const char *dir,
                                   int (*on_extract_entry)(const char *filename,
                                                           void *arg),
                                   void *arg);
-/** @} */
 #ifdef __cplusplus
 }
 #endif
+
 
 #endif

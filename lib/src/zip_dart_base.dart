@@ -2,7 +2,7 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
-import 'package:zip_flutter/src/isolates.dart';
+import 'package:zip_flutter/src/multithreading.dart';
 import 'generated_bindings.dart';
 import 'package:path/path.dart' as path;
 
@@ -25,6 +25,44 @@ final NativeLibrary _lib = NativeLibrary(() {
 
 int _onExtractEntry(ffi.Pointer<ffi.Char> filename, ffi.Pointer<ffi.Void> arg) {
   return 0;
+}
+
+/// A class that collects pointers and frees them when the object is destroyed.
+class _Collector {
+  static final finalizer = Finalizer<List<ffi.Pointer>>((token) {
+    print('Finalizing');
+    for (var pointer in token) {
+      malloc.free(pointer);
+    }
+  });
+
+  _Collector() {
+    finalizer.attach(this, _pointers);
+  }
+
+  final List<ffi.Pointer> _pointers = [];
+
+  void add(ffi.Pointer pointer) {
+    _pointers.add(pointer);
+  }
+
+  void call(ffi.Pointer pointer) {
+    add(pointer);
+  }
+
+  ffi.Pointer<T> allocate<T extends ffi.NativeType>(int count) {
+    var pointer = malloc.allocate<T>(count);
+    add(pointer);
+    return pointer;
+  }
+}
+
+extension _StringNavite on String {
+  ffi.Pointer<ffi.Int8> toNative([_Collector? collector]) {
+    final pointer = toNativeUtf8();
+    collector?.add(pointer);
+    return pointer.cast();
+  }
 }
 
 enum ZipOpenMode {
@@ -72,11 +110,12 @@ class ZipFile {
   /// zip.close();
   /// ```
   void addFile(String name, String sourceFile) {
-    var res = _lib.zip_entry_open(_zip, name.toNativeUtf8().cast());
+    var collector = _Collector();
+    var res = _lib.zip_entry_open(_zip, name.toNative(collector).cast());
     if (res < 0) {
       throw const ZipException("Failed to open entry.");
     }
-    res = _lib.zip_entry_fwrite(_zip, sourceFile.toNativeUtf8().cast());
+    res = _lib.zip_entry_fwrite(_zip, sourceFile.toNative(collector).cast());
     if (res < 0) {
       throw ZipException("Failed to write content.\n"
           "Input: $sourceFile\n"
@@ -94,38 +133,76 @@ class ZipFile {
   /// This method has lower performance than the [addFile] method
   /// because it copies the bytes into native memory.
   void addFileFromBytes(String name, Uint8List bytes) {
-    var res = _lib.zip_entry_open(_zip, name.toNativeUtf8().cast());
+    var collector = _Collector();
+    var res = _lib.zip_entry_open(_zip, name.toNative(collector).cast());
     if (res < 0) {
       throw const ZipException("Failed to open entry.");
     }
-    var data = malloc.allocate<ffi.Uint8>(bytes.length);
-    try {
-      for (int i = 0; i < bytes.length; i++) {
-        data[i] = bytes[i];
-      }
-      res = _lib.zip_entry_write(_zip, data.cast(), bytes.length);
-      if (res < 0) {
-        throw ZipException("Failed to write content.\n"
-            "Trying write to $name\n"
-            "Error Code $res\n");
-      }
-      res = _lib.zip_entry_close(_zip);
-      if (res < 0) {
-        throw const ZipException("Failed to close entry.");
-      }
-    } finally {
-      malloc.free(data);
+    var data = collector.allocate<ffi.Uint8>(bytes.length);
+    for (int i = 0; i < bytes.length; i++) {
+      data[i] = bytes[i];
+    }
+    res = _lib.zip_entry_write(_zip, data.cast(), bytes.length);
+    if (res < 0) {
+      throw ZipException("Failed to write content.\n"
+          "Trying write to $name\n"
+          "Error Code $res\n");
+    }
+    res = _lib.zip_entry_close(_zip);
+    if (res < 0) {
+      throw const ZipException("Failed to close entry.");
     }
   }
 
-  /// Adds a empty directory to the zip archive.
+  /// Adds multiple files to the zip archive.
+  ///
+  /// This method will create a new thread to write the files and not block the current thread.
+  ///
+  /// Do not use this method with other methods that write to the zip archive at the same time.
+  Future<void> addFilesAsync(
+      List<String> names, List<String> sourceFiles) async {
+    if (names.length != sourceFiles.length) {
+      throw const ZipException(
+          "Names and source files must have the same length.");
+    }
+    var collector = _Collector();
+    var count = names.length;
+    var entryNames = malloc.allocate<ffi.Pointer<ffi.Char>>(
+        count * ffi.sizeOf<ffi.Pointer<ffi.Char>>());
+    var fileNames = malloc.allocate<ffi.Pointer<ffi.Char>>(
+        count * ffi.sizeOf<ffi.Pointer<ffi.Char>>());
+    collector(entryNames);
+    collector(fileNames);
+    for (int i = 0; i < count; i++) {
+      entryNames[i] = names[i].toNative(collector).cast();
+      fileNames[i] = sourceFiles[i].toNative(collector).cast();
+    }
+    var handler = _lib.zip_entry_thread_write_files(
+      _zip,
+      entryNames,
+      fileNames,
+      names.length,
+    );
+    while (true) {
+      var status = _lib.zip_thread_write_status(_zip, handler);
+      if (status == ZipWriteStatus.ZIP_WRITE_STATUS_OK) {
+        break;
+      } else if (status == ZipWriteStatus.ZIP_WRITE_STATUS_ERROR) {
+        throw const ZipException("Failed to write content.");
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  /// Adds an empty directory to the zip archive.
   void addDirectory(String name) {
+    var collector = _Collector();
     if (name.endsWith("\\") || name.endsWith("/")) {
       name = name.substring(0, name.length - 1);
     }
     // A entry which is a directory must end with a slash '/', '\' is not allowed.
     name = "$name/";
-    var res = _lib.zip_entry_open(_zip, name.toNativeUtf8().cast());
+    var res = _lib.zip_entry_open(_zip, name.toNative(collector).cast());
     if (res < 0) {
       throw const ZipException("Failed to open entry.");
     }
@@ -199,29 +276,38 @@ class ZipFile {
 
   /// Delete a zip archive entry.
   void deleteEntry(String name) {
-    var res = _lib.zip_entries_delete(_zip, name.toNativeUtf8().cast(), 1);
+    var collector = _Collector();
+    var res = _lib.zip_entries_delete(
+        _zip, name.toNative(collector).cast().cast(), 1);
     if (res < 0) {
       throw const ZipException("Failed to delete entry.");
     }
   }
 
   /// Extracts a zip archive file into directory.
+  ///
+  /// The method will block the current thread.
   static void openAndExtract(String zipFile, String extractTo) {
-    ffi.Pointer<ffi.Int32> arg = malloc.allocate(4);
+    var collector = _Collector();
+    ffi.Pointer<ffi.Int32> arg = collector.allocate(4);
 
     ffi.Pointer<
-        ffi.NativeFunction<
-            ffi.Int Function(
-                ffi.Pointer<ffi.Char> filename, ffi.Pointer<ffi.Void> arg)>>
-    func = ffi.Pointer.fromFunction(_onExtractEntry, 0);
+            ffi.NativeFunction<
+                ffi.Int Function(
+                    ffi.Pointer<ffi.Char> filename, ffi.Pointer<ffi.Void> arg)>>
+        func = ffi.Pointer.fromFunction(_onExtractEntry, 0);
 
-    _lib.zip_extract(zipFile.toNativeUtf8().cast(),
-        extractTo.toNativeUtf8().cast(), func, arg.cast());
+    _lib.zip_extract(
+      zipFile.toNative(collector).cast(),
+      extractTo.toNative(collector).cast(),
+      func,
+      arg.cast(),
+    );
 
     malloc.free(arg);
   }
 
-  /// Extracts a zip archive file into directory.
+  /// Extracts a zip archive file into a directory.
   ///
   /// Set [isolates] to the number of isolates to use for extraction.
   static Future<void> openAndExtractAsync(String zipFile, String extractTo,
@@ -229,7 +315,9 @@ class ZipFile {
     return isolatesExtract(zipFile, extractTo, isolates);
   }
 
-  /// Compresses a folder into a zip archive.
+  /// Compresses a folder to a zip archive.
+  ///
+  /// The method will block the current thread.
   static void compressFolder(String sourceFolder, String zipFileName) {
     sourceFolder = path.absolute(sourceFolder);
     var zip = ZipFile.open(zipFileName);
@@ -250,6 +338,17 @@ class ZipFile {
     walk(sourceFolder);
     zip.close();
   }
+
+  /// Compresses a folder to a zip archive using multiple threads.
+  ///
+  /// Set [threads] to the number of threads to use for compression.
+  ///
+  /// The method will not block the current thread.
+  static Future<void> compressFolderAsync(
+      String sourceFolder, String zipFileName,
+      [int threads = 1]) {
+    return compressFolderMultiThreaded(sourceFolder, zipFileName, threads);
+  }
 }
 
 class ZipEntry {
@@ -266,7 +365,9 @@ class ZipEntry {
 
   /// Deletes zip archive entry
   void delete() {
-    var res = _lib.zip_entries_delete(_file._zip, name.toNativeUtf8().cast(), 1);
+    var collector = _Collector();
+    var res = _lib.zip_entries_delete(
+        _file._zip, name.toNative(collector).cast().cast(), 1);
     if (res < 0) {
       throw const ZipException("Failed to delete an entry");
     }
@@ -289,8 +390,7 @@ class ZipEntry {
         throw const ZipException("Failed to read data");
       }
       return buf.asTypedList(size, finalizer: malloc.nativeFree);
-    }
-    finally {
+    } finally {
       _lib.zip_entry_close(_file._zip);
     }
   }

@@ -38,6 +38,10 @@ class _MyAppState extends State<MyApp> {
               onTap: testAddFilesWithBytes,
             ),
             ListTile(
+              title: const Text('Create zip With Multiple Threads'),
+              onTap: testCompressWithThreads,
+            ),
+            ListTile(
               title: const Text('List Files'),
               onTap: testListFiles,
             ),
@@ -99,6 +103,14 @@ class _MyAppState extends State<MyApp> {
     zip.close();
   }
 
+  void testCompressWithThreads() async {
+    if (File('test.zip').existsSync()) {
+      File('test.zip').deleteSync();
+    }
+    await ZipFile.compressFolderAsync(r"test", 'test.zip', 4);
+    print('Compression completed');
+  }
+
   void testListFiles() {
     var zip = ZipFile.open('test.zip', mode: ZipOpenMode.readonly);
     var entries = zip.getAllEntries();
@@ -132,6 +144,7 @@ class _MyAppState extends State<MyApp> {
       file.writeAsBytesSync(entry.read());
     }
     zip.close();
+    print('Unzip completed');
   }
 
   void testUnzipSync() {

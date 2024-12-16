@@ -3,9 +3,13 @@
 # the plugin to fail to compile for some customers of the plugin.
 cmake_minimum_required(VERSION 3.10)
 
-project(zip_flutter_library VERSION 0.0.1 LANGUAGES C)
+project(zip_flutter_library VERSION 0.0.1 LANGUAGES CXX)
 
-add_library(zip_flutter SHARED "zip.c")
+add_library(zip_flutter SHARED
+        "zip.cc"
+        "miniz.h"
+        "zip.h"
+)
 
 set_target_properties(zip_flutter PROPERTIES
   PUBLIC_HEADER zip.h
