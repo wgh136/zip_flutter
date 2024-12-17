@@ -309,6 +309,8 @@ class ZipFile {
   /// Extracts a zip archive file into a directory.
   ///
   /// Set [isolates] to the number of isolates to use for extraction.
+  ///
+  /// The method will not block the current thread.
   static Future<void> openAndExtractAsync(String zipFile, String extractTo,
       [int isolates = 1]) {
     return isolatesExtract(zipFile, extractTo, isolates);

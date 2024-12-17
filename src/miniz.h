@@ -200,6 +200,89 @@
 #endif
 
 #include <stddef.h>
+#include <filesystem>
+#include <chrono>
+#include <cstdlib>
+
+#define MZ_FILE_STAT_STRUCT _stat_struct
+#define MZ_FILE_STAT _stat
+
+struct _stat_struct{
+  unsigned short st_mode;
+  size_t st_size;
+  time_t time;
+};
+
+int _stat(const char* file, _stat_struct* stat) {
+    if (!file || !stat) {
+        return -1;
+    }
+
+    try {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+
+        fs::path filepath(file);
+
+        fs::file_status fstatus = fs::status(filepath, ec);
+        if (ec) {
+            return -1;
+        }
+
+        uintmax_t filesize = fs::file_size(filepath, ec);
+        if (ec) {
+            return -1;
+        }
+
+        auto ftime = fs::last_write_time(filepath, ec);
+        if (ec) {
+            return -1;
+        }
+
+        memset(stat, 0, sizeof(_stat_struct));
+
+        switch (fstatus.type()) {
+            case fs::file_type::regular:
+                stat->st_mode = 0x8000; // _S_IFREG
+                break;
+            case fs::file_type::directory:
+                stat->st_mode = 0x4000; // _S_IFDIR
+                break;
+            case fs::file_type::symlink:
+                stat->st_mode = 0xA000; // _S_IFLNK
+                break;
+            default:
+                stat->st_mode = 0;
+        }
+
+        if ((fstatus.permissions() & fs::perms::owner_read) != fs::perms::none)
+            stat->st_mode |= 0x100; // S_IRUSR
+        if ((fstatus.permissions() & fs::perms::owner_write) != fs::perms::none)
+            stat->st_mode |= 0x80;  // S_IWUSR
+        if ((fstatus.permissions() & fs::perms::owner_exec) != fs::perms::none)
+            stat->st_mode |= 0x40;  // S_IXUSR
+
+        stat->st_size = static_cast<size_t>(filesize);
+
+
+#ifdef _WIN32
+        constexpr auto win_epoch = std::chrono::seconds(11644473600);
+        auto sctp = std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            ftime.time_since_epoch() - win_epoch);
+
+        auto sct = std::chrono::system_clock::time_point(sctp);
+        auto ctime = std::chrono::system_clock::to_time_t(sct);
+#else
+        auto ctime = std::chrono::duration_cast<std::chrono::seconds>(ftime.time_since_epoch()).count();
+#endif
+        stat->time = ctime;
+
+        return 0;
+    }
+    catch (const std::exception&) {
+        return -1;
+    }
+}
 
 #if !defined(MINIZ_NO_TIME) && !defined(MINIZ_NO_ARCHIVE_APIS)
 #include <time.h>
@@ -5006,8 +5089,6 @@ static int mz_mkdir(const char *pDirname) {
 #define MZ_FWRITE fwrite
 #define MZ_FTELL64 _ftelli64
 #define MZ_FSEEK64 _fseeki64
-#define MZ_FILE_STAT_STRUCT _stat64
-#define MZ_FILE_STAT mz_stat64
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN mz_freopen
 #define MZ_DELETE_FILE remove
@@ -5023,8 +5104,6 @@ static int mz_mkdir(const char *pDirname) {
 #define MZ_FWRITE fwrite
 #define MZ_FTELL64 _ftelli64
 #define MZ_FSEEK64 _fseeki64
-#define MZ_FILE_STAT_STRUCT stat
-#define MZ_FILE_STAT stat
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN(f, m, s) freopen(f, m, s)
 #define MZ_DELETE_FILE remove
@@ -5040,8 +5119,6 @@ static int mz_mkdir(const char *pDirname) {
 #define MZ_FWRITE fwrite
 #define MZ_FTELL64 ftell
 #define MZ_FSEEK64 fseek
-#define MZ_FILE_STAT_STRUCT stat
-#define MZ_FILE_STAT stat
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN(f, m, s) freopen(f, m, s)
 #define MZ_DELETE_FILE remove
@@ -5061,8 +5138,6 @@ static int mz_mkdir(const char *pDirname) {
 #define MZ_FWRITE fwrite
 #define MZ_FTELL64 ftello64
 #define MZ_FSEEK64 fseeko64
-#define MZ_FILE_STAT_STRUCT stat64
-#define MZ_FILE_STAT stat64
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN(p, m, s) freopen64(p, m, s)
 #define MZ_DELETE_FILE remove
@@ -5078,8 +5153,6 @@ static int mz_mkdir(const char *pDirname) {
 #define MZ_FWRITE fwrite
 #define MZ_FTELL64 ftello
 #define MZ_FSEEK64 fseeko
-#define MZ_FILE_STAT_STRUCT stat
-#define MZ_FILE_STAT stat
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN(p, m, s) freopen(p, m, s)
 #define MZ_DELETE_FILE remove
@@ -5102,8 +5175,6 @@ static int mz_mkdir(const char *pDirname) {
 #define MZ_FTELL64 ftello
 #define MZ_FSEEK64 fseeko
 #endif
-#define MZ_FILE_STAT_STRUCT stat
-#define MZ_FILE_STAT stat
 #define MZ_FFLUSH fflush
 #define MZ_FREOPEN(f, m, s) freopen(f, m, s)
 #define MZ_DELETE_FILE remove
@@ -5385,7 +5456,7 @@ static mz_bool mz_zip_get_file_modified_time(const char *pFilename,
   if (MZ_FILE_STAT(pFilename, &file_stat) != 0)
     return MZ_FALSE;
 
-  *pTime = file_stat.st_mtime;
+  *pTime = file_stat.time;
 
   return MZ_TRUE;
 }

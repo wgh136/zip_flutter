@@ -1622,7 +1622,7 @@ int zip_entry_fwrite(struct zip_t *zip, const char *filename) {
   }
 #endif
 
-  zip->entry.m_time = file_stat.st_mtime;
+  zip->entry.m_time = file_stat.time;
 
   if (!(stream = MZ_FOPEN(filename, "rb"))) {
     // Cannot open filename
@@ -1679,6 +1679,7 @@ ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entr
   return handler;
 }
 
+extern "C" {
 int compressFile(struct zip_t *zip, const char *entryname, const char* filename) {
   struct MZ_FILE_STAT_STRUCT stat{};
   if (MZ_FILE_STAT(filename, &stat) != 0) {
@@ -1743,7 +1744,7 @@ int compressFile(struct zip_t *zip, const char *entryname, const char* filename)
   zip->entry.comp_size = outSize;
   zip->entry.uncomp_crc32 = static_cast<mz_uint32>(_crc32);
   zip->entry.uncomp_size = stat.st_size;
-  zip->entry.m_time = stat.st_mtime;
+  zip->entry.m_time = stat.time;
   delete[] compData;
   delete[] data;
   int s = zip_entry_close_no_flush(zip);
@@ -1761,6 +1762,7 @@ void compressFiles(struct zip_t *zip, const char **entrynames, const char **file
     }
   }
   zip->write_status[handler] = ZIP_WRITE_STATUS_OK;
+}
 }
 
 ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip, const char **entrynames, const char **filenames, size_t count) {
