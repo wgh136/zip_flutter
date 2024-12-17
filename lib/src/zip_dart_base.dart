@@ -30,7 +30,6 @@ int _onExtractEntry(ffi.Pointer<ffi.Char> filename, ffi.Pointer<ffi.Void> arg) {
 /// A class that collects pointers and frees them when the object is destroyed.
 class _Collector {
   static final finalizer = Finalizer<List<ffi.Pointer>>((token) {
-    print('Finalizing');
     for (var pointer in token) {
       malloc.free(pointer);
     }
