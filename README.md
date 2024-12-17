@@ -106,6 +106,19 @@ void testCompressFolder() {
 }
 ```
 
+Compress a folder with multiple threads
+```dart
+void testCompressWithThreads() async {
+  var toBeCompressed = Directory('test');
+  var resultZip = File('test.zip');
+  await ZipFile.compressFolderAsync(toBeCompressed.path, resultZip.path, 4); // 4 threads
+  print('Compression completed');
+}
+```
+> Note: 
+> Current implementation is not efficient for compressing large files (> 20MB).
+> If a thread is compressing a large file, other threads will be blocked.
+
 Extract a zip file to a folder
 ```dart
 void testExtractZip() {

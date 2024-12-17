@@ -1680,6 +1680,28 @@ ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entr
 }
 
 int compressFile(struct zip_t *zip, const char *entryname, const char* filename) {
+  struct MZ_FILE_STAT_STRUCT stat{};
+  if (MZ_FILE_STAT(filename, &stat) != 0) {
+    return -1;
+  }
+  if (stat.st_size == 0 || stat.st_size > 20 * 1024 * 1024) {
+    zip->write_lock.lock();
+    if (zip_entry_open(zip, entryname) != 0) {
+      zip->write_lock.unlock();
+      return -1;
+    }
+    if (zip_entry_fwrite(zip, filename) != 0) {
+      zip->write_lock.unlock();
+      return -1;
+    }
+    if (zip_entry_close(zip) != 0) {
+      zip->write_lock.unlock();
+      return -1;
+    }
+    zip->write_lock.unlock();
+    return 0;
+  }
+
   tdefl_compressor compressor{};
   if (tdefl_init(
     &compressor,
@@ -1687,14 +1709,6 @@ int compressFile(struct zip_t *zip, const char *entryname, const char* filename)
     nullptr,
     (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY)
     ) != TDEFL_STATUS_OKAY) {
-    return -1;
-  }
-
-  struct MZ_FILE_STAT_STRUCT stat{};
-  if (MZ_FILE_STAT(filename, &stat) != 0) {
-    return -1;
-  }
-  if (stat.st_size == 0) {
     return -1;
   }
 

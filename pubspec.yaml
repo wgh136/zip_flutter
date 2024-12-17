@@ -1,5 +1,5 @@
 name: zip_flutter
-description: "Extract or create zip archives."
+description: "Extract or create zip archives with ffi."
 version: 0.0.1
 repository: https://github.com/wgh136/zip_dart
 
