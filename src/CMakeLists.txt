@@ -13,6 +13,8 @@ add_library(zip_flutter SHARED
         "zip.h"
 )
 
+add_link_options("-Wl,--build-id=none")
+
 set_target_properties(zip_flutter PROPERTIES
   PUBLIC_HEADER zip.h
   OUTPUT_NAME "zip_flutter"
