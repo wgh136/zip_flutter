@@ -199,7 +199,7 @@
 #define MINIZ_NO_TIME
 #endif
 
-#include <stddef.h>
+#include <cstring>
 #include <filesystem>
 #include <chrono>
 #include <cstdlib>
@@ -239,7 +239,7 @@ int _stat(const char* file, _stat_struct* stat) {
             return -1;
         }
 
-        memset(stat, 0, sizeof(_stat_struct));
+        std::memset(stat, 0, sizeof(_stat_struct));
 
         switch (fstatus.type()) {
             case fs::file_type::regular:
