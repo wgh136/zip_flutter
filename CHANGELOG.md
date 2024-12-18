@@ -13,3 +13,7 @@
 ## 0.0.4
 
 * Fix ios & macos
+
+## 0.0.5
+
+* Fix the problem that zip is not closed.

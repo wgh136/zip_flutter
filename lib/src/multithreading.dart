@@ -24,8 +24,7 @@ Future<void> isolatesExtract(String zipFile, String extractTo, int isolates) {
       );
     }
     return Future.wait(futures);
-  }
-  finally {
+  } finally {
     zip.close();
   }
 }
@@ -34,14 +33,18 @@ Future<void> extractEntries(
     String zipFile, String extractTo, List<String> entries) {
   return Isolate.run(() {
     var zip = ZipFile.openRead(zipFile);
-    for (var entryName in entries) {
-      var resultFilePath = extractTo + Platform.pathSeparator + entryName;
-      var entry = zip.getEntryByName(entryName);
-      if (entry.isDir) {
-        Directory(resultFilePath).createSync(recursive: true);
-      } else {
-        entry.writeToFile(resultFilePath);
+    try {
+      for (var entryName in entries) {
+        var resultFilePath = extractTo + Platform.pathSeparator + entryName;
+        var entry = zip.getEntryByName(entryName);
+        if (entry.isDir) {
+          Directory(resultFilePath).createSync(recursive: true);
+        } else {
+          entry.writeToFile(resultFilePath);
+        }
       }
+    } finally {
+      zip.close();
     }
   });
 }
@@ -68,6 +71,7 @@ Future<void> compressFolderMultiThreaded(
       }
     }
   }
+
   walker(Directory(folder));
   var zip = ZipFile.open(zipFile);
   try {
@@ -90,8 +94,7 @@ Future<void> compressFolderMultiThreaded(
       ));
     }
     await Future.wait(futures);
-  }
-  finally {
+  } finally {
     zip.close();
   }
 }
