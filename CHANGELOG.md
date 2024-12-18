@@ -9,3 +9,7 @@
 ## 0.0.3
 
 * Fix Android build
+
+## 0.0.4
+
+* Fix ios & macos
