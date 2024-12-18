@@ -1,7 +1,3 @@
-#
-# To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
-# Run `pod lib lint zip_flutter.podspec` to validate before publishing.
-#
 Pod::Spec.new do |s|
   s.name             = 'zip_flutter'
   s.version          = '0.0.1'
@@ -12,17 +8,28 @@ A new Flutter FFI plugin project.
   s.homepage         = 'http://example.com'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
-
-  # This will ensure the source files in Classes/ are included in the native
-  # builds of apps using this FFI plugin. Podspec does not support relative
-  # paths, so Classes contains a forwarder C file that relatively imports
-  # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files     = 'Classes/**/*'
   s.dependency 'Flutter'
-  s.platform = :ios, '11.0'
+  s.platform = :ios, '15.0'
 
-  # Flutter.framework does not contain a i386 slice.
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
+  s.library = 'c++'
+  s.xcconfig = {
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
+    'CLANG_CXX_LIBRARY' => 'libc++',
+  }
+  
+  s.pod_target_xcconfig = { 
+    'DEFINES_MODULE' => 'YES', 
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
+    'CLANG_ENABLE_MODULES' => 'YES',
+    'CLANG_ENABLE_OBJC_ARC' => 'YES',
+    'OTHER_CPLUSPLUSFLAGS' => '-std=c++20 -stdlib=libc++',
+    'OTHER_LDFLAGS' => '-stdlib=libc++',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
+    'CLANG_CXX_LIBRARY' => 'libc++',
+    'GCC_PREPROCESSOR_DEFINITIONS' => ['HAVE_PTHREADS=1']
+  }
+  
   s.swift_version = '5.0'
 end
