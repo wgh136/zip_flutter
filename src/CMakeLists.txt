@@ -7,13 +7,12 @@ set(CMAKE_CXX_STANDARD 17)
 
 project(zip_flutter_library VERSION 0.0.1 LANGUAGES CXX)
 
+add_link_options("-Wl,--build-id=none")
 add_library(zip_flutter SHARED
         "zip.cc"
         "miniz.h"
         "zip.h"
 )
-
-add_link_options("-Wl,--build-id=none")
 
 set_target_properties(zip_flutter PROPERTIES
   PUBLIC_HEADER zip.h
