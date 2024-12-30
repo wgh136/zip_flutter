@@ -103,9 +103,9 @@ enum ZipWriteStatus {
   ZIP_WRITE_STATUS_WRITING = 3,
 };
 
-constexpr int8_t zipWriteStatusLength = 64;
+constexpr int zipWriteStatusLength = 64;
 
-typedef int8_t ZipThreadWriteHandler;
+typedef int ZipThreadWriteHandler;
 
 /**
  * Looks up the error message string corresponding to an error number.

@@ -166,12 +166,10 @@ class ZipFile {
     }
     var collector = _Collector();
     var count = names.length;
-    var entryNames = malloc.allocate<ffi.Pointer<ffi.Char>>(
+    var entryNames = collector.allocate<ffi.Pointer<ffi.Char>>(
         count * ffi.sizeOf<ffi.Pointer<ffi.Char>>());
-    var fileNames = malloc.allocate<ffi.Pointer<ffi.Char>>(
+    var fileNames = collector.allocate<ffi.Pointer<ffi.Char>>(
         count * ffi.sizeOf<ffi.Pointer<ffi.Char>>());
-    collector(entryNames);
-    collector(fileNames);
     for (int i = 0; i < count; i++) {
       entryNames[i] = names[i].toNative(collector).cast();
       fileNames[i] = sourceFiles[i].toNative(collector).cast();

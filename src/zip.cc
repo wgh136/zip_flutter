@@ -108,7 +108,7 @@ struct zip_t {
   struct zip_entry_t entry;
   std::mutex write_lock;
   ZipWriteStatus write_status[zipWriteStatusLength];
-  int8_t ZipWriteStatusNext;
+  int ZipWriteStatusNext{0};
   std::vector<std::thread> threads;
 };
 
@@ -1679,19 +1679,18 @@ ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entr
   return handler;
 }
 
-extern "C" {
-int compressFile(struct zip_t *zip, const char *entryname, const char* filename) {
+int compressFile(struct zip_t *zip, std::string entryname, std::string filename) {
   struct MZ_FILE_STAT_STRUCT stat{};
-  if (MZ_FILE_STAT(filename, &stat) != 0) {
+  if (MZ_FILE_STAT(filename.c_str(), &stat) != 0) {
     return -1;
   }
   if (stat.st_size == 0 || stat.st_size > 20 * 1024 * 1024) {
     zip->write_lock.lock();
-    if (zip_entry_open(zip, entryname) != 0) {
+    if (zip_entry_open(zip, entryname.c_str()) != 0) {
       zip->write_lock.unlock();
       return -1;
     }
-    if (zip_entry_fwrite(zip, filename) != 0) {
+    if (zip_entry_fwrite(zip, filename.c_str()) != 0) {
       zip->write_lock.unlock();
       return -1;
     }
@@ -1738,7 +1737,7 @@ int compressFile(struct zip_t *zip, const char *entryname, const char* filename)
     }
   }
   zip->write_lock.lock();
-  zip_entry_open(zip, entryname);
+  zip_entry_open(zip, entryname.c_str());
   pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset, compData, outSize);
   zip->entry.dir_offset += outSize;
   zip->entry.comp_size = outSize;
@@ -1752,9 +1751,9 @@ int compressFile(struct zip_t *zip, const char *entryname, const char* filename)
   return s;
 }
 
-void compressFiles(struct zip_t *zip, const char **entrynames, const char **filenames, size_t count, const ZipThreadWriteHandler handler) {
+void compressFiles(struct zip_t *zip, std::vector<std::string> entrynames, std::vector<std::string> filenames, const ZipThreadWriteHandler handler) {
   zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
-  for (auto i = 0; i < count; i++) {
+  for (auto i = 0; i < entrynames.size(); i++) {
     int status = compressFile(zip, entrynames[i], filenames[i]);
     if (status != 0) {
       zip->write_status[handler] = ZIP_WRITE_STATUS_ERROR;
@@ -1763,11 +1762,20 @@ void compressFiles(struct zip_t *zip, const char **entrynames, const char **file
   }
   zip->write_status[handler] = ZIP_WRITE_STATUS_OK;
 }
+
+
+std::vector<std::string> parseCString(const char **strs, size_t count) {
+    auto res = std::vector<std::string>{};
+    for (int i=0; i<count; i++) {
+        res.emplace_back(strs[i]);
+    }
+    return res;
 }
 
 ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip, const char **entrynames, const char **filenames, size_t count) {
   auto handler = zip->ZipWriteStatusNext;
-  zip->threads.emplace_back(compressFiles, zip, entrynames, filenames, count, handler);
+  zip->write_status[handler] = ZIP_STATUS_NO_USE;
+  zip->threads.emplace_back(compressFiles, zip, parseCString(entrynames, count), parseCString(filenames, count), handler);
   zip->ZipWriteStatusNext = (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
   return handler;
 }
