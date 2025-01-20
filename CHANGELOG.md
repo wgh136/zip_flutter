@@ -1,3 +1,7 @@
+## 0.0.7
+
+* Lower iOS version requirements
+
 ## 0.0.6
 
 * Fix crash caused by pointer error.

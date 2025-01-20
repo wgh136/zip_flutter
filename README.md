@@ -10,7 +10,7 @@ Add the following dependency to your pubspec.yaml file:
 
 ```yaml
 dependencies:
-  zip_flutter: ^0.0.4
+  zip_flutter: ^0.0.7
 ```
 
 ## Usage
