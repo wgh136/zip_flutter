@@ -1,3 +1,7 @@
+## 0.0.9
+
+* Add `tdeflCompressData` method to compress data.
+
 ## 0.0.8
 
 * Fix iOS build

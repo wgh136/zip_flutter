@@ -1641,22 +1641,61 @@ int zip_entry_fwrite(struct zip_t *zip, const char *filename) {
   return err;
 }
 
-void compressBuffer(zip_t* zip, const void* inBuf, size_t inSize, const char* entryName, const ZipThreadWriteHandler handler) {
-  zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
+unsigned char* tdefl_compress_data(const void* inBuf, size_t inSize, size_t* outSize, int flags) {
+  size_t outBufSize = inSize;
   tdefl_compressor compressor{};
-  auto status = tdefl_init(
+  if (TDEFL_STATUS_OKAY != tdefl_init(
     &compressor,
     nullptr,
     nullptr,
-    (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY)
-    );
-  if (status != TDEFL_STATUS_OKAY) {
-    zip->write_status[handler] = ZIP_WRITE_STATUS_ERROR;
-    return;
+    flags
+  )) {
+    return nullptr;
   }
-  auto* outBuf = new unsigned char[inSize];
+  *outSize = outBufSize;
+  auto* outBuf = new unsigned char[outBufSize];
+  for (;;) {
+    auto status = tdefl_compress(
+      &compressor,
+      inBuf, &inSize,
+      outBuf, outSize,
+      TDEFL_FINISH);
+    if (status == TDEFL_STATUS_DONE) {
+      break;
+    }
+    if (status != TDEFL_STATUS_OKAY) {
+      delete[] outBuf;
+      return nullptr;
+    }
+    // out buffer is too small
+    delete[] outBuf;
+    if (TDEFL_STATUS_OKAY != tdefl_init(
+      &compressor,
+      nullptr,
+      nullptr,
+      flags
+    )) {
+      return nullptr;
+    }
+    outBufSize = static_cast<size_t>(static_cast<double>(outBufSize) * 1.2);
+    *outSize = outBufSize;
+    outBuf = new unsigned char[outBufSize];
+  }
+  return outBuf;
+}
+
+void tdefl_free_data(const unsigned char* buf) {
+  delete[] buf;
+}
+
+int zip_compress_flags(zip_t* zip) {
+  return (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY);
+}
+
+void compressBuffer(zip_t* zip, const void* inBuf, size_t inSize, const char* entryName, const ZipThreadWriteHandler handler) {
+  zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
   size_t outSize = 0;
-  tdefl_compress(&compressor, inBuf, &inSize, outBuf, &outSize, TDEFL_FINISH);
+  auto outBuf = tdefl_compress_data(inBuf, inSize, &outSize, zip_compress_flags(zip));
   zip->write_lock.lock();
   zip_entry_open(zip, entryName);
   auto pzip = &(zip->archive);
@@ -1702,40 +1741,15 @@ int compressFile(struct zip_t *zip, std::string entryname, std::string filename)
     return 0;
   }
 
-  tdefl_compressor compressor{};
-  if (tdefl_init(
-    &compressor,
-    nullptr,
-    nullptr,
-    (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY)
-    ) != TDEFL_STATUS_OKAY) {
-    return -1;
-  }
-
   auto file = std::ifstream(filename, std::ios::binary);
   auto data = new char[stat.st_size];
   size_t size = stat.st_size;
   file.read(data, size);
   auto _crc32 = mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const mz_uint8 *>(data), stat.st_size);
   auto pzip = &(zip->archive);
-  size_t outSize = stat.st_size + 1024;
-  unsigned char* compData;
-  for(;;) {
-    compData = new unsigned char[outSize];
-    size_t inBytes = size;
-    auto status = tdefl_compress(&compressor, data, &inBytes, compData, &outSize, TDEFL_FINISH);
-    if (status == TDEFL_STATUS_DONE) {
-      break;
-    } else if (status == TDEFL_STATUS_OKAY) {
-      // The buffer is too small
-      outSize = static_cast<size_t>(static_cast<double>(outSize) * 1.2);
-      delete[] compData;
-    } else {
-      delete[] data;
-      delete[] compData;
-      return -1;
-    }
-  }
+  size_t outSize = 0;
+  unsigned char* compData = tdefl_compress_data(data, stat.st_size, &outSize, zip_compress_flags(zip));
+
   zip->write_lock.lock();
   zip_entry_open(zip, entryname.c_str());
   pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset, compData, outSize);

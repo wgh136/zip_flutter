@@ -10,7 +10,7 @@ typedef _ZipFilePtr = ffi.Pointer<zip_t>;
 
 const String _libName = 'zip_flutter';
 
-final NativeLibrary _lib = NativeLibrary(() {
+final _dylib = () {
   if (Platform.isMacOS || Platform.isIOS) {
     return ffi.DynamicLibrary.open('$_libName.framework/$_libName');
   }
@@ -21,7 +21,9 @@ final NativeLibrary _lib = NativeLibrary(() {
     return ffi.DynamicLibrary.open('$_libName.dll');
   }
   throw UnsupportedError('Unknown platform: ${Platform.operatingSystem}');
-}());
+}();
+
+final NativeLibrary _lib = NativeLibrary(_dylib);
 
 int _onExtractEntry(ffi.Pointer<ffi.Char> filename, ffi.Pointer<ffi.Void> arg) {
   return 0;
@@ -427,4 +429,34 @@ class ZipException implements Exception {
 
   @override
   String toString() => "ZipException: $message";
+}
+
+final _tdeflFreeData =
+    _dylib.lookup<ffi.NativeFunction<ffi.Void Function(ffi.UnsignedChar)>>(
+        'tdefl_free_data');
+
+/// Compresses data using the miniz tdefl algorithm.
+Uint8List tdeflCompressData(
+    Uint8List data, bool withZlibHeader, bool computeAdler32, int level) {
+  var flags = 0;
+  if (withZlibHeader) {
+    flags |= TDEFL_COMPRESS_FLAGS.TDEFL_COMPRESS_WRITE_ZLIB_HEADER;
+  }
+  if (computeAdler32) {
+    flags |= TDEFL_COMPRESS_FLAGS.TDEFL_COMPRESS_COMPUTE_ADLER32;
+  }
+  level = level.clamp(0, 10);
+  const levelFlags = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
+  flags |= levelFlags[level];
+  var collector = _Collector();
+  var dataPointer = collector.allocate<ffi.Uint8>(data.length);
+  for (int i = 0; i < data.length; i++) {
+    dataPointer[i] = data[i];
+  }
+  var outSize = collector.allocate<ffi.Size>(ffi.sizeOf<ffi.Size>());
+  var compressed =
+      _lib.tdefl_compress_data(dataPointer.cast(), data.length, outSize, flags);
+  return compressed
+      .cast<ffi.Uint8>()
+      .asTypedList(outSize.value, finalizer: _tdeflFreeData.cast());
 }

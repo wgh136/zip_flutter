@@ -13,8 +13,6 @@
 #define ZIP_H
 
 #include <stdint.h>
-#include <string.h>
-#include <sys/types.h>
 
 #if _WIN32
 #define ZIP_EXPORT __declspec(dllexport)
@@ -541,6 +539,25 @@ extern ZIP_EXPORT int zip_extract(const char *zipname, const char *dir,
                                   int (*on_extract_entry)(const char *filename,
                                                           void *arg),
                                   void *arg);
+
+extern ZIP_EXPORT unsigned char* tdefl_compress_data(const void* inBuf, size_t inSize, size_t* outSize, int flags);
+
+extern ZIP_EXPORT void tdefl_free_data(const unsigned char* buf);
+
+/// Flags for tdefl_compress_data
+enum TDEFL_COMPRESS_FLAGS {
+    TDEFL_COMPRESS_WRITE_ZLIB_HEADER = 0x01000,
+    TDEFL_COMPRESS_COMPUTE_ADLER32 = 0x02000,
+    TDEFL_COMPRESS_GREEDY_PARSING_FLAG = 0x04000,
+    TDEFL_COMPRESS_NONDETERMINISTIC_PARSING_FLAG = 0x08000,
+    TDEFL_COMPRESS_RLE_MATCHES = 0x10000,
+    TDEFL_COMPRESS_FILTER_MATCHES = 0x20000,
+    TDEFL_COMPRESS_FORCE_ALL_STATIC_BLOCKS = 0x40000,
+    TDEFL_COMPRESS_FORCE_ALL_RAW_BLOCKS = 0x80000,
+    TDEFL_COMPRESS_HUFFMAN_ONLY = 0,
+    TDEFL_COMPRESS_DEFAULT_MAX_PROBES = 128,
+    TDEFL_COMPRESS_MAX_PROBES_MASK = 0xFFF
+};
 #ifdef __cplusplus
 }
 #endif
