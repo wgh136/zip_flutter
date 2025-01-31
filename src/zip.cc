@@ -10,12 +10,12 @@
 #define __STDC_WANT_LIB_EXT1__ 1
 
 #include <errno.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <thread>
-#include <mutex>
 #include <fstream>
 #include <iostream>
+#include <mutex>
+#include <sys/stat.h>
+#include <thread>
+#include <time.h>
 #include <vector>
 
 #if defined(_WIN32) || defined(__WIN32__) || defined(_MSC_VER) ||              \
@@ -106,7 +106,7 @@ struct zip_t {
   mz_zip_archive archive;
   mz_uint level;
   struct zip_entry_t entry;
-  std::mutex write_lock;
+  std::mutex write_lock = {};
   ZipWriteStatus write_status[zipWriteStatusLength];
   int ZipWriteStatusNext{0};
   std::vector<std::thread> threads;
@@ -917,9 +917,9 @@ struct zip_t *zip_openwitherror(const char *zipname, int level, char mode,
     *errnum = ZIP_EINVLVL;
     goto cleanup;
   }
-
-  zip = (struct zip_t *)calloc((size_t)1, sizeof(struct zip_t));
-  if (!zip) {
+  try {
+    zip = new zip_t();
+  } catch (std::bad_alloc &e) {
     // out of memory
     *errnum = ZIP_EOOMEM;
     goto cleanup;
@@ -982,6 +982,9 @@ cleanup:
 
 void zip_close(struct zip_t *zip) {
   if (zip) {
+    for (auto &th : zip->threads) {
+      th.join();
+    }
     mz_zip_archive *pZip = &(zip->archive);
     // Always finalize, even if adding failed for some reason, so we have a
     // valid central directory.
@@ -1394,8 +1397,8 @@ cleanup:
   return err;
 }
 
-int zip_entry_close_no_flush(zip_t* zip) {
-    mz_zip_archive *pzip = NULL;
+int zip_entry_close_no_flush(zip_t *zip) {
+  mz_zip_archive *pzip = NULL;
   mz_uint level;
   tdefl_status done;
   mz_uint16 entrylen;
@@ -1641,25 +1644,18 @@ int zip_entry_fwrite(struct zip_t *zip, const char *filename) {
   return err;
 }
 
-unsigned char* tdefl_compress_data(const void* inBuf, size_t inSize, size_t* outSize, int flags) {
+unsigned char *tdefl_compress_data(const void *inBuf, size_t inSize,
+                                   size_t *outSize, int flags) {
   size_t outBufSize = inSize;
   tdefl_compressor compressor{};
-  if (TDEFL_STATUS_OKAY != tdefl_init(
-    &compressor,
-    nullptr,
-    nullptr,
-    flags
-  )) {
+  if (TDEFL_STATUS_OKAY != tdefl_init(&compressor, nullptr, nullptr, flags)) {
     return nullptr;
   }
   *outSize = outBufSize;
-  auto* outBuf = new unsigned char[outBufSize];
+  auto *outBuf = new unsigned char[outBufSize];
   for (;;) {
-    auto status = tdefl_compress(
-      &compressor,
-      inBuf, &inSize,
-      outBuf, outSize,
-      TDEFL_FINISH);
+    auto status = tdefl_compress(&compressor, inBuf, &inSize, outBuf, outSize,
+                                 TDEFL_FINISH);
     if (status == TDEFL_STATUS_DONE) {
       break;
     }
@@ -1669,12 +1665,7 @@ unsigned char* tdefl_compress_data(const void* inBuf, size_t inSize, size_t* out
     }
     // out buffer is too small
     delete[] outBuf;
-    if (TDEFL_STATUS_OKAY != tdefl_init(
-      &compressor,
-      nullptr,
-      nullptr,
-      flags
-    )) {
+    if (TDEFL_STATUS_OKAY != tdefl_init(&compressor, nullptr, nullptr, flags)) {
       return nullptr;
     }
     outBufSize = static_cast<size_t>(static_cast<double>(outBufSize) * 1.2);
@@ -1684,24 +1675,26 @@ unsigned char* tdefl_compress_data(const void* inBuf, size_t inSize, size_t* out
   return outBuf;
 }
 
-void tdefl_free_data(const unsigned char* buf) {
-  delete[] buf;
+void tdefl_free_data(const unsigned char *buf) { delete[] buf; }
+
+int zip_compress_flags(zip_t *zip) {
+  return (int)tdefl_create_comp_flags_from_zip_params(
+      static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY);
 }
 
-int zip_compress_flags(zip_t* zip) {
-  return (int)tdefl_create_comp_flags_from_zip_params(static_cast<int>(zip->level), -15, MZ_DEFAULT_STRATEGY);
-}
-
-void compressBuffer(zip_t* zip, const void* inBuf, size_t inSize, const char* entryName, const ZipThreadWriteHandler handler) {
+void compressBuffer(zip_t *zip, const void *inBuf, size_t inSize,
+                    const char *entryName,
+                    const ZipThreadWriteHandler handler) {
   zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
   size_t outSize = 0;
-  auto outBuf = tdefl_compress_data(inBuf, inSize, &outSize, zip_compress_flags(zip));
+  auto outBuf =
+      tdefl_compress_data(inBuf, inSize, &outSize, zip_compress_flags(zip));
   zip->write_lock.lock();
   zip_entry_open(zip, entryName);
   auto pzip = &(zip->archive);
   pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset, outBuf, outSize);
   zip->entry.uncomp_crc32 = static_cast<mz_uint32>(mz_crc32(
-    zip->entry.uncomp_crc32, static_cast<const mz_uint8 *>(inBuf), inSize));
+      zip->entry.uncomp_crc32, static_cast<const mz_uint8 *>(inBuf), inSize));
   zip->entry.uncomp_size = inSize;
   zip->entry.dir_offset += outSize;
   zip->entry.comp_size = outSize;
@@ -1711,21 +1704,27 @@ void compressBuffer(zip_t* zip, const void* inBuf, size_t inSize, const char* en
   zip->write_status[handler] = ZIP_WRITE_STATUS_OK;
 }
 
-ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entryName, void *buf, size_t bufsize) {
+ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip,
+                                             const char *entryName, void *buf,
+                                             size_t bufsize) {
   auto handler = zip->ZipWriteStatusNext;
   std::thread t(compressBuffer, zip, buf, bufsize, entryName, handler);
-  zip->ZipWriteStatusNext = (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
+  zip->ZipWriteStatusNext =
+      (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
   return handler;
 }
 
-int compressFile(struct zip_t *zip, std::string entryname, std::string filename) {
-  struct MZ_FILE_STAT_STRUCT stat{};
+int compressFile(struct zip_t *zip, std::string entryname,
+                 std::string filename) {
+  struct MZ_FILE_STAT_STRUCT stat {};
   if (MZ_FILE_STAT(filename.c_str(), &stat) != 0) {
     return -1;
   }
   if (stat.st_size == 0 || stat.st_size > 20 * 1024 * 1024) {
     zip->write_lock.lock();
+
     if (zip_entry_open(zip, entryname.c_str()) != 0) {
+
       zip->write_lock.unlock();
       return -1;
     }
@@ -1737,6 +1736,7 @@ int compressFile(struct zip_t *zip, std::string entryname, std::string filename)
       zip->write_lock.unlock();
       return -1;
     }
+
     zip->write_lock.unlock();
     return 0;
   }
@@ -1745,13 +1745,16 @@ int compressFile(struct zip_t *zip, std::string entryname, std::string filename)
   auto data = new char[stat.st_size];
   size_t size = stat.st_size;
   file.read(data, size);
-  auto _crc32 = mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const mz_uint8 *>(data), stat.st_size);
+  auto _crc32 = mz_crc32(
+      MZ_CRC32_INIT, reinterpret_cast<const mz_uint8 *>(data), stat.st_size);
   auto pzip = &(zip->archive);
   size_t outSize = 0;
-  unsigned char* compData = tdefl_compress_data(data, stat.st_size, &outSize, zip_compress_flags(zip));
+  unsigned char *compData = tdefl_compress_data(data, stat.st_size, &outSize,
+                                                zip_compress_flags(zip));
 
   zip->write_lock.lock();
   zip_entry_open(zip, entryname.c_str());
+
   pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.dir_offset, compData, outSize);
   zip->entry.dir_offset += outSize;
   zip->entry.comp_size = outSize;
@@ -1765,7 +1768,9 @@ int compressFile(struct zip_t *zip, std::string entryname, std::string filename)
   return s;
 }
 
-void compressFiles(struct zip_t *zip, std::vector<std::string> entrynames, std::vector<std::string> filenames, const ZipThreadWriteHandler handler) {
+void compressFiles(struct zip_t *zip, std::vector<std::string> entrynames,
+                   std::vector<std::string> filenames,
+                   const ZipThreadWriteHandler handler) {
   zip->write_status[handler] = ZIP_WRITE_STATUS_WRITING;
   for (auto i = 0; i < entrynames.size(); i++) {
     int status = compressFile(zip, entrynames[i], filenames[i]);
@@ -1777,24 +1782,29 @@ void compressFiles(struct zip_t *zip, std::vector<std::string> entrynames, std::
   zip->write_status[handler] = ZIP_WRITE_STATUS_OK;
 }
 
-
 std::vector<std::string> parseCString(const char **strs, size_t count) {
-    auto res = std::vector<std::string>{};
-    for (int i=0; i<count; i++) {
-        res.emplace_back(strs[i]);
-    }
-    return res;
+  auto res = std::vector<std::string>{};
+  for (int i = 0; i < count; i++) {
+    res.emplace_back(strs[i]);
+  }
+  return res;
 }
 
-ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip, const char **entrynames, const char **filenames, size_t count) {
+ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip,
+                                                   const char **entrynames,
+                                                   const char **filenames,
+                                                   size_t count) {
   auto handler = zip->ZipWriteStatusNext;
   zip->write_status[handler] = ZIP_STATUS_NO_USE;
-  zip->threads.emplace_back(compressFiles, zip, parseCString(entrynames, count), parseCString(filenames, count), handler);
-  zip->ZipWriteStatusNext = (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
+  zip->threads.emplace_back(compressFiles, zip, parseCString(entrynames, count),
+                            parseCString(filenames, count), handler);
+  zip->ZipWriteStatusNext =
+      (zip->ZipWriteStatusNext + 1) % zipWriteStatusLength;
   return handler;
 }
 
-ZipWriteStatus zip_thread_write_status(zip_t* zip, ZipThreadWriteHandler handler) {
+ZipWriteStatus zip_thread_write_status(zip_t *zip,
+                                       ZipThreadWriteHandler handler) {
   return zip->write_status[handler];
 }
 
