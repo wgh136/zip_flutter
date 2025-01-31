@@ -325,11 +325,15 @@ extern ZIP_EXPORT int zip_entry_write(struct zip_t *zip, const void *buf,
  */
 extern ZIP_EXPORT int zip_entry_fwrite(struct zip_t *zip, const char *filename);
 
-extern ZIP_EXPORT ZipThreadWriteHandler zip_entry_thread_write(struct zip_t *zip, const char *entryname, void *buf, size_t bufsize);
+extern ZIP_EXPORT ZipThreadWriteHandler zip_entry_thread_write(
+    struct zip_t *zip, const char *entryname, void *buf, size_t bufsize);
 
-extern ZIP_EXPORT ZipThreadWriteHandler zip_entry_thread_write_files(struct zip_t *zip, const char **entryname, const char **filenames, size_t count);
+extern ZIP_EXPORT ZipThreadWriteHandler
+zip_entry_thread_write_files(struct zip_t *zip, const char **entryname,
+                             const char **filenames, size_t count);
 
-extern ZIP_EXPORT ZipWriteStatus zip_thread_write_status(zip_t* zip, ZipThreadWriteHandler handler);
+extern ZIP_EXPORT ZipWriteStatus
+zip_thread_write_status(zip_t *zip, ZipThreadWriteHandler handler);
 
 /**
  * Extracts the current zip entry into output buffer.
@@ -540,27 +544,29 @@ extern ZIP_EXPORT int zip_extract(const char *zipname, const char *dir,
                                                           void *arg),
                                   void *arg);
 
-extern ZIP_EXPORT unsigned char* tdefl_compress_data(const void* inBuf, size_t inSize, size_t* outSize, int flags);
+extern ZIP_EXPORT unsigned char *tdefl_compress_data(const void *inBuf,
+                                                     size_t inSize,
+                                                     size_t *outSize,
+                                                     int flags);
 
-extern ZIP_EXPORT void tdefl_free_data(const unsigned char* buf);
+extern ZIP_EXPORT void tdefl_free_data(const unsigned char *buf);
 
 /// Flags for tdefl_compress_data
 enum TDEFL_COMPRESS_FLAGS {
-    TDEFL_COMPRESS_WRITE_ZLIB_HEADER = 0x01000,
-    TDEFL_COMPRESS_COMPUTE_ADLER32 = 0x02000,
-    TDEFL_COMPRESS_GREEDY_PARSING_FLAG = 0x04000,
-    TDEFL_COMPRESS_NONDETERMINISTIC_PARSING_FLAG = 0x08000,
-    TDEFL_COMPRESS_RLE_MATCHES = 0x10000,
-    TDEFL_COMPRESS_FILTER_MATCHES = 0x20000,
-    TDEFL_COMPRESS_FORCE_ALL_STATIC_BLOCKS = 0x40000,
-    TDEFL_COMPRESS_FORCE_ALL_RAW_BLOCKS = 0x80000,
-    TDEFL_COMPRESS_HUFFMAN_ONLY = 0,
-    TDEFL_COMPRESS_DEFAULT_MAX_PROBES = 128,
-    TDEFL_COMPRESS_MAX_PROBES_MASK = 0xFFF
+  TDEFL_COMPRESS_WRITE_ZLIB_HEADER = 0x01000,
+  TDEFL_COMPRESS_COMPUTE_ADLER32 = 0x02000,
+  TDEFL_COMPRESS_GREEDY_PARSING_FLAG = 0x04000,
+  TDEFL_COMPRESS_NONDETERMINISTIC_PARSING_FLAG = 0x08000,
+  TDEFL_COMPRESS_RLE_MATCHES = 0x10000,
+  TDEFL_COMPRESS_FILTER_MATCHES = 0x20000,
+  TDEFL_COMPRESS_FORCE_ALL_STATIC_BLOCKS = 0x40000,
+  TDEFL_COMPRESS_FORCE_ALL_RAW_BLOCKS = 0x80000,
+  TDEFL_COMPRESS_HUFFMAN_ONLY = 0,
+  TDEFL_COMPRESS_DEFAULT_MAX_PROBES = 128,
+  TDEFL_COMPRESS_MAX_PROBES_MASK = 0xFFF
 };
 #ifdef __cplusplus
 }
 #endif
-
 
 #endif
