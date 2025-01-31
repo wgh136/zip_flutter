@@ -1,0 +1,38 @@
+name: MacOS Debug
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        brew install cmake
+
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake ../src/test
+        make
+        
+    - name: Run with debug info
+      working-directory: build
+      run: |
+        export DYLD_PRINT_APIS=1
+        export MallocStackLogging=1 
+        export DYLD_PRINT_LIBRARIES=1
+        ./main 2>&1 | tee debug.log
+
+    - name: Upload debug logs
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: macos-debug-logs
+        path: |
+          build/debug.log
+          build/**/*.core 
