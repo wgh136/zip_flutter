@@ -7,9 +7,6 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  */
-#include <new>
-#include <stdexcept>
-#include <sys/_types/_caddr_t.h>
 #define __STDC_WANT_LIB_EXT1__ 1
 
 #include <errno.h>
