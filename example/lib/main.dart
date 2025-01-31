@@ -2,9 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 
-void main() {
+void main() async {
+  if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+    WidgetsFlutterBinding.ensureInitialized();
+    var cacheDir = await getApplicationCacheDirectory();
+    Directory.current = cacheDir.path;
+    print("Current platform does not support file system operations. Using cache directory: ${cacheDir.path}");
+  }
   runApp(const MyApp());
 }
 
