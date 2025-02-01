@@ -1,3 +1,7 @@
+## 0.0.10
+
+* Fix crash on iOS and macOS.
+
 ## 0.0.9
 
 * Add `tdeflCompressData` method to compress data.
