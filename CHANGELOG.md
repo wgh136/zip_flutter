@@ -1,3 +1,7 @@
+## 0.0.12
+
+* Use Ndk r28
+
 ## 0.0.10
 
 * Fix crash on iOS and macOS.
