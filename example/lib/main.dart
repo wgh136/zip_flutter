@@ -68,6 +68,10 @@ class _MyAppState extends State<MyApp> {
               title: const Text('Unzip With Isolates'),
               onTap: testUnzipWithIsolates,
             ),
+            ListTile(
+              title: const Text('Test Chinese Filenames'),
+              onTap: testChineseFilenames,
+            ),
           ],
         ),
       ),
@@ -170,5 +174,26 @@ class _MyAppState extends State<MyApp> {
     Directory('extracted').createSync();
     await ZipFile.openAndExtractAsync('test.zip', 'extracted', 4);
     print('Unzip completed');
+  }
+
+  void testChineseFilenames() {
+    const testDirName = '测试文件夹';
+    const testFileName = '文件.txt';
+    if(Directory(testDirName).existsSync()) {
+      Directory(testDirName).deleteSync(recursive: true);
+    }
+    Directory(testDirName).createSync();
+    File('$testDirName/$testFileName').writeAsStringSync('你好，世界');
+    if (File('chinese_test.zip').existsSync()) {
+      File('chinese_test.zip').deleteSync();
+    }
+    ZipFile.compressFolder(testDirName, "chinese_test.zip");
+
+    var readZip = ZipFile.open('chinese_test.zip', mode: ZipOpenMode.readonly);
+    var entries = readZip.getAllEntries();
+    for (var entry in entries) {
+      print(entry.name);
+    }
+    readZip.close();
   }
 }

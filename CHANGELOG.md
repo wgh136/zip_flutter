@@ -1,3 +1,7 @@
+## 0.0.13
+
+* Fix issues with chinese characters in file names.
+
 ## 0.0.12
 
 * Use Ndk r28

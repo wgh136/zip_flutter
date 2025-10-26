@@ -222,7 +222,7 @@ int _stat(const char* file, _stat_struct* stat) {
         namespace fs = std::filesystem;
         std::error_code ec;
 
-        fs::path filepath(file);
+        fs::path filepath = std::filesystem::u8path(file);
 
         fs::file_status fstatus = fs::status(filepath, ec);
         if (ec) {
